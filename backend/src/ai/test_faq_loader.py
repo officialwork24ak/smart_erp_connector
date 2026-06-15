@@ -69,7 +69,6 @@ _FALLBACK_FREQUENT: List[str] = [
     "Gross Margin Analysis by Department/Category",
     "Inventory Aging Analysis",
     "Dead Stock Identification",
-    "Product-wise Sell Through %",
     "Sales Trend Prediction for Upcoming Festivals/Seasons",
     "AI-generated Business Insights and Recommendations",
 ]
