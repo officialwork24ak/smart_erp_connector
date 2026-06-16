@@ -335,22 +335,6 @@ export default function Transactions() {
 
           <motion.button
             type="button"
-            onClick={() => refreshAll()}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold"
-            style={{
-              background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-              border: surface.border,
-              color: isDark ? '#e6edf3' : '#24292f',
-            }}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            <RefreshCw size={14} className={txnLoading || summaryLoading ? 'animate-spin' : ''} />
-            Refresh
-          </motion.button>
-
-          <motion.button
-            type="button"
             onClick={() => downloadPageCsv(period, sortedRows)}
             disabled={!sortedRows.length || txnLoading}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white disabled:opacity-40 disabled:pointer-events-none"

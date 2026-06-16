@@ -201,12 +201,6 @@ export default function Branch() {
               <WifiOff size={10} /> Demo
             </span>
           )}
-
-          <motion.button type="button" onClick={() => refetch()}
-            className="p-2 rounded-xl" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            style={{ background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', border: card.border, color: T.muted }}>
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          </motion.button>
         </div>
       </div>
 

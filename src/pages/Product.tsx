@@ -220,16 +220,6 @@ export default function Product() {
               </button>
             ))}
           </div>
-          <motion.button type="button" onClick={() => refreshAll()}
-            className="p-2 rounded-xl"
-            style={{
-              background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
-              border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
-              color: 'var(--text-muted)',
-            }}
-            whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
-            <RefreshCw size={13} className={catalogLoading || topLoading || catLoading ? 'animate-spin' : ''} />
-          </motion.button>
         </div>
       </motion.div>
 
