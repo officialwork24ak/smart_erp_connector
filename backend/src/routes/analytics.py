@@ -305,7 +305,10 @@ async def dashboard_page(
     try:
         mtd, today = await asyncio.gather(
             _fetch_analytics_bundle("mtd", 100, include_kpis=True, include_extras=True, force_refresh=force),
-            _fetch_analytics_bundle("today", 10, include_kpis=True, include_extras=False, force_refresh=force),
+            # include_extras=True so TODAY's distinct customer count is fetched too —
+            # otherwise the "Today's Customer Count" card shows "—" while Analytics shows it.
+            # A one-day COUNT(DISTINCT) is cheap, so there is no real performance cost.
+            _fetch_analytics_bundle("today", 10, include_kpis=True, include_extras=True, force_refresh=force),
         )
         ts = [
             float(x)
