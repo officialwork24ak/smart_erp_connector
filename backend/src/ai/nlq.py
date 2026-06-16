@@ -90,7 +90,8 @@ async def process_query(
     user_id: str = "anonymous",
     conv_id: Optional[str] = None,
     top_n_override: Optional[int] = None,
-    provider: str = "claude",
+    provider: str = "openai",
+    force_dynamic: bool = False,
 ) -> NLQResponse:
     start = time.perf_counter()
 
@@ -109,6 +110,7 @@ async def process_query(
         provider=provider,
         snap=snap,
         top_n=top_n_override,
+        force_dynamic=force_dynamic,
     )
 
     chart_type = _infer_chart_type(result.records)

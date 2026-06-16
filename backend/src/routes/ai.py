@@ -35,7 +35,11 @@ class NLQRequest(BaseModel):
     query: str = Field(min_length=2, max_length=1000)
     conversation_id: Optional[str] = None
     top_n: Optional[int] = Field(default=None, ge=1, le=200)
-    provider: str = Field(default="claude", pattern="^(claude|openai)$")
+    provider: str = Field(default="openai", pattern="^(claude|openai)$")
+    force_dynamic: bool = Field(
+        default=False,
+        description="Skip verified FAQ templates; use AI view selection + SQL generation only.",
+    )
 
 
 class ExplainSQLRequest(BaseModel):
@@ -88,6 +92,7 @@ async def nlq_query(
             conv_id=body.conversation_id,
             top_n_override=body.top_n,
             provider=body.provider,
+            force_dynamic=body.force_dynamic,
         )
 
         return {

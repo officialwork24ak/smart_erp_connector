@@ -2,14 +2,14 @@ import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AreaChart, Area, ResponsiveContainer, XAxis, YAxis, CartesianGrid, BarChart, Bar,
-  LineChart, Line, PieChart, Pie, Cell, Tooltip, LabelList,
+  LineChart, Line, PieChart, Pie, Cell, Tooltip, LabelList, Legend,
 } from 'recharts';
 import {
   Send, Sparkles, Code2, BarChart2, Loader2,
   Zap, Brain, Terminal, Copy, Check, ArrowRight, Database, ShieldCheck,
   ChevronDown, ThumbsUp, ThumbsDown, BookMarked,
   Search, LayoutTemplate, CheckCircle2, AlertCircle, MessageSquarePlus,
-  TrendingUp, Building2, Package, Users, Clock, Hash,
+  TrendingUp, Building2, Package, Users, Clock, Hash, History, Trash2,
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { ai, NLQResponse, fetchPublicHealth } from '../lib/api';
@@ -18,6 +18,7 @@ import {
   formatChartValue,
   formatChartAxisValue,
   type ChartPoint,
+  type ChartSeries,
   type KPICard,
 } from '../lib/nlqVisualization';
 import verifiedQueriesFallback from '../data/verified_nlq_queries.json';
@@ -26,6 +27,8 @@ import TableExportButtons, { type ExportNotify } from '../components/export/Tabl
 import { ScrollableCartesian, PieSideLayout } from '../lib/chartLayout';
 
 const PIE_COLORS = ['#00b8e6', '#00e67a', '#ffb800', '#a78bfa', '#f472b6', '#fb923c', '#38bdf8', '#4ade80'];
+// Distinct, high-contrast colours for grouped-bar comparison series (e.g. This period vs Last).
+const SERIES_COLORS = ['#00b8e6', '#ffb800', '#00e67a', '#a78bfa'];
 
 /** 10 verified FAQ templates — source: test/verified_ai_templates.py */
 const QUERY_TEMPLATES: QueryTemplate[] = verifiedAiTemplates as QueryTemplate[];
@@ -161,7 +164,7 @@ interface ApprovedQuery {
 }
 
 type Feedback = 'up' | 'down' | null;
-type LeftTab = 'suggestions' | 'templates';
+type LeftTab = 'suggestions' | 'templates' | 'history';
 
 interface Message {
   id: string;
@@ -169,7 +172,7 @@ interface Message {
   content: string;
   sql?: string;
   chartType?: 'bar' | 'area' | 'line' | 'pie' | 'none';
-  chart?: { data: ChartPoint[]; valueKey: string };
+  chart?: { data: ChartPoint[]; valueKey: string; series?: ChartSeries[] };
   kpiCards?: KPICard[];
   table?: { columns: string[]; rows: string[][] };
   insights?: Array<{ title?: string; description?: string; severity?: string }>;
@@ -224,6 +227,31 @@ function loadApproved(): ApprovedQuery[] {
 
 function saveApproved(list: ApprovedQuery[]) {
   localStorage.setItem(LS_APPROVED, JSON.stringify(list.slice(0, 200)));
+}
+
+// ── Chat history (persisted conversations) ────────────────────────────────────
+
+const LS_HISTORY = 'smarterp_chat_history';
+const MAX_HISTORY = 40;
+
+interface ChatSession {
+  id: string;
+  title: string;
+  messages: Message[];
+  conversationId?: string;
+  topic: Topic;
+  savedAt: string;     // ISO
+}
+
+function loadHistory(): ChatSession[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_HISTORY) ?? '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch { return []; }
+}
+
+function saveHistory(list: ChatSession[]) {
+  try { localStorage.setItem(LS_HISTORY, JSON.stringify(list.slice(0, MAX_HISTORY))); } catch { /* quota */ }
 }
 
 // ── Sub-components (memoized) ─────────────────────────────────────────────────
@@ -286,15 +314,18 @@ const ResultChart = memo(function ResultChart({
   type,
   data,
   valueKey,
+  series,
   pieGraphicOnly = false,
 }: {
   type: 'bar' | 'area' | 'line' | 'pie';
   data: ChartPoint[];
   valueKey: string;
+  series?: ChartSeries[];
   pieGraphicOnly?: boolean;
 }) {
   const { isDark } = useTheme();
   if (!data.length) return null;
+  const multi = (series?.length ?? 0) > 1;
 
   const plotData = useMemo(
     () => (type === 'bar' || type === 'pie' ? [...data].sort((a, b) => b.value - a.value) : data),
@@ -348,6 +379,13 @@ const ResultChart = memo(function ResultChart({
   const barHeight = type === 'bar'
     ? (plotData.length > 30 ? 280 : plotData.length > 15 ? 250 : 220)
     : 176;
+  // Each category needs enough horizontal room so the value labels on top of the bars
+  // don't collide. Grouped (multi-series) bars need more room per category than single bars.
+  // The chart lives inside a horizontal scroller, so wide slots just enable scrolling.
+  const seriesCount = multi ? (series?.length ?? 2) : 1;
+  const barSlot = multi ? Math.max(78, seriesCount * 46) : BAR_SLOT_PX;
+  // Show on-bar value labels while they stay legible; beyond that the tooltip + scroll carry it.
+  const showBarLabels = plotData.length <= (multi ? 40 : 150);
 
   const fmtAxis = useMemo(
     () => (v: number) => formatChartAxisValue(Number(v), valueKey),
@@ -362,9 +400,9 @@ const ResultChart = memo(function ResultChart({
           <BarChart2 size={11} style={{ color: '#00b8e6' }} />
           <span className="text-xs font-semibold" style={{ color: '#00b8e6' }}>{valueKey}</span>
         </div>
-        {type === 'bar' && plotData.length * BAR_SLOT_PX > 400 && (
+        {type === 'bar' && plotData.length * barSlot > 400 && (
           <span className="text-2xs" style={{ color: 'var(--text-muted)' }}>
-            Scroll chart on narrow screens · {plotData.length} bars
+            Scroll chart horizontally → · {plotData.length}{multi ? ` × ${seriesCount}` : ''} bars
           </span>
         )}
         {type === 'bar' && plotData.length > 0 && (
@@ -404,13 +442,14 @@ const ResultChart = memo(function ResultChart({
           }
         />
       ) : type === 'bar' ? (
-        <ScrollableCartesian itemCount={plotData.length} height={barHeight} slotPx={BAR_SLOT_PX}>
+        <ScrollableCartesian itemCount={plotData.length} height={barHeight} slotPx={barSlot}>
           {() => (
             <BarChart
               data={plotData}
-              margin={{ top: 24, right: 12, left: 4, bottom: plotData.length > 6 ? 80 : 24 }}
+              margin={{ top: multi && showBarLabels ? 46 : 24, right: 12, left: 4, bottom: plotData.length > 6 ? 80 : 24 }}
               barCategoryGap="20%"
-              maxBarSize={40}
+              barGap={2}
+              maxBarSize={multi ? 26 : 40}
             >
               <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
               <XAxis
@@ -425,21 +464,46 @@ const ResultChart = memo(function ResultChart({
               />
               <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmtAxis} width={56} />
               <Tooltip
-                formatter={(v: number) => [fmtVal(Number(v)), valueKey]}
+                formatter={(v: number, name: string) => [fmtVal(Number(v)), multi ? name : valueKey]}
                 labelFormatter={(l) => String(l)}
                 contentStyle={tooltipStyle}
                 cursor={{ fill: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }}
               />
-              <Bar dataKey="value" fill="#00b8e6" radius={[4, 4, 0, 0]} opacity={0.9}>
-                {plotData.length <= 150 && (
-                  <LabelList
-                    dataKey="value"
-                    position="top"
-                    formatter={(v: number) => fmtVal(Number(v))}
-                    style={{ fontSize: 9, fill: 'var(--text-primary)', fontWeight: 700 }}
-                  />
-                )}
-              </Bar>
+              {multi && <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />}
+              {multi ? (
+                series!.map((s, i) => (
+                  <Bar
+                    key={s.key}
+                    dataKey={s.key}
+                    name={s.name}
+                    fill={SERIES_COLORS[i % SERIES_COLORS.length]}
+                    radius={[3, 3, 0, 0]}
+                    opacity={0.92}
+                  >
+                    {showBarLabels && (
+                      <LabelList
+                        dataKey={s.key}
+                        position="top"
+                        angle={-90}
+                        offset={10}
+                        formatter={(v: number) => fmtVal(Number(v))}
+                        style={{ fontSize: 8, fill: SERIES_COLORS[i % SERIES_COLORS.length], fontWeight: 700 }}
+                      />
+                    )}
+                  </Bar>
+                ))
+              ) : (
+                <Bar dataKey="value" fill="#00b8e6" radius={[4, 4, 0, 0]} opacity={0.9}>
+                  {showBarLabels && (
+                    <LabelList
+                      dataKey="value"
+                      position="top"
+                      formatter={(v: number) => fmtVal(Number(v))}
+                      style={{ fontSize: 9, fill: 'var(--text-primary)', fontWeight: 700 }}
+                    />
+                  )}
+                </Bar>
+              )}
             </BarChart>
           )}
         </ScrollableCartesian>
@@ -692,7 +756,7 @@ function nlqToMessage(
     content: formatAiContent(resp),
     sql: resp.sql,
     chartType: viz.chartType,
-    chart: viz.chartType !== 'none' && viz.chartData.length ? { data: viz.chartData, valueKey: viz.valueKey } : undefined,
+    chart: viz.chartType !== 'none' && viz.chartData.length ? { data: viz.chartData, valueKey: viz.valueKey, series: viz.series } : undefined,
     kpiCards: viz.kpiCards.length ? viz.kpiCards : undefined,
     table: viz.table,
     insights: (resp.insights ?? []) as Message['insights'],
@@ -738,7 +802,7 @@ export default function AIQuery() {
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
   const [queryCount, setQueryCount] = useState(0);
   const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
-  const [provider, setProvider] = useState<'claude' | 'openai'>('claude');
+  const [provider, setProvider] = useState<'claude' | 'openai'>('openai');
   const [showProviderMenu, setShowProviderMenu] = useState(false);
 
   // Conversation context
@@ -756,6 +820,10 @@ export default function AIQuery() {
 
   // Approved queries
   const [approvedQueries, setApprovedQueries] = useState<ApprovedQuery[]>(() => loadApproved());
+
+  // Chat history (persisted past conversations)
+  const [history, setHistory] = useState<ChatSession[]>(() => loadHistory());
+  const sessionIdRef = useRef<string>(`sess_${Date.now()}`);
 
   // Toast
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -808,12 +876,65 @@ export default function AIQuery() {
     return best;
   }, [approvedQueries]);
 
+  // ── Persist the current conversation into history (upsert by session id) ─────
+  useEffect(() => {
+    const firstUser = messages.find(m => m.role === 'user');
+    if (!firstUser) return;  // nothing meaningful to save yet
+    const sid = sessionIdRef.current;
+    const session: ChatSession = {
+      id: sid,
+      title: (firstUser.content || 'Conversation').slice(0, 80),
+      messages,
+      conversationId,
+      topic: activeTopic,
+      savedAt: new Date().toISOString(),
+    };
+    setHistory(prev => {
+      const without = prev.filter(s => s.id !== sid);
+      const next = [session, ...without].slice(0, MAX_HISTORY);
+      saveHistory(next);
+      return next;
+    });
+  }, [messages, conversationId, activeTopic]);
+
   // ── New chat ───────────────────────────────────────────────────────────────
+  // Current chat is already saved by the effect above, so starting fresh never
+  // loses anything — it just opens a new session id.
   const newChat = useCallback(() => {
     setMessages([]);
     setConversationId(undefined);
     setActiveTopic(null);
     setShowSQL({});
+    sessionIdRef.current = `sess_${Date.now()}`;
+  }, []);
+
+  // ── Load / delete / clear history ────────────────────────────────────────────
+  const loadSession = useCallback((s: ChatSession) => {
+    setMessages(s.messages);
+    setConversationId(s.conversationId);
+    setActiveTopic(s.topic);
+    setShowSQL({});
+    sessionIdRef.current = s.id;
+    setLeftTab('suggestions');
+  }, []);
+
+  const deleteSession = useCallback((id: string) => {
+    setHistory(prev => {
+      const next = prev.filter(s => s.id !== id);
+      saveHistory(next);
+      return next;
+    });
+    if (sessionIdRef.current === id) {
+      setMessages([]);
+      setConversationId(undefined);
+      setActiveTopic(null);
+      sessionIdRef.current = `sess_${Date.now()}`;
+    }
+  }, []);
+
+  const clearHistory = useCallback(() => {
+    setHistory([]);
+    saveHistory([]);
   }, []);
 
   // ── Feedback ──────────────────────────────────────────────────────────────
@@ -970,7 +1091,7 @@ export default function AIQuery() {
       ) : (
         <>
           {msg.chart && msg.chartType && msg.chartType !== 'none' && (
-            <ResultChart type={msg.chartType as 'bar' | 'area' | 'line' | 'pie'} data={msg.chart.data} valueKey={msg.chart.valueKey} />
+            <ResultChart type={msg.chartType as 'bar' | 'area' | 'line' | 'pie'} data={msg.chart.data} valueKey={msg.chart.valueKey} series={msg.chart.series} />
           )}
           {msg.table && (
             <ResultTable
@@ -1172,6 +1293,7 @@ export default function AIQuery() {
             {([
               { id: 'suggestions' as LeftTab, label: 'Suggestions', icon: ShieldCheck },
               { id: 'templates' as LeftTab, label: 'Templates', icon: LayoutTemplate },
+              { id: 'history' as LeftTab, label: 'History', icon: History },
             ] as const).map(tab => {
               const Icon = tab.icon;
               const isActive = leftTab === tab.id;
@@ -1284,6 +1406,74 @@ export default function AIQuery() {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* History tab */}
+          {leftTab === 'history' && (
+            <div className="flex flex-col flex-1 min-h-0 p-3">
+              <div className="flex items-center justify-between mb-2 flex-shrink-0">
+                <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                  {history.length} saved {history.length === 1 ? 'chat' : 'chats'}
+                </p>
+                {history.length > 0 && (
+                  <button type="button" onClick={clearHistory}
+                    className="flex items-center gap-1 text-2xs font-semibold px-2 py-1 rounded-md"
+                    style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>
+                    <Trash2 size={10} /> Clear all
+                  </button>
+                )}
+              </div>
+
+              {history.length === 0 ? (
+                <div className="flex flex-col items-center justify-center flex-1 text-center px-4">
+                  <History size={26} style={{ color: 'var(--text-muted)' }} />
+                  <p className="text-xs mt-2 font-semibold" style={{ color: 'var(--text-secondary)' }}>No history yet</p>
+                  <p className="text-2xs mt-1 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                    Your conversations are saved here automatically. Click any to reopen it.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1.5 overflow-y-auto flex-1 scrollbar-none pr-0.5">
+                  {history.map(s => {
+                    const isCurrent = s.id === sessionIdRef.current;
+                    const turns = s.messages.filter(m => m.role === 'user').length;
+                    let when = '';
+                    try {
+                      when = new Date(s.savedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    } catch { when = ''; }
+                    return (
+                      <div key={s.id}
+                        className="group relative px-3 py-2 rounded-xl text-xs cursor-pointer"
+                        onClick={() => loadSession(s)}
+                        style={{
+                          background: isCurrent ? (isDark ? 'rgba(0,184,230,0.10)' : 'rgba(0,184,230,0.07)') : (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'),
+                          border: isCurrent ? '1px solid rgba(0,184,230,0.35)' : (isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.05)'),
+                        }}>
+                        <div className="flex items-start gap-2">
+                          <MessageSquarePlus size={11} className="flex-shrink-0 mt-0.5" style={{ color: '#00b8e6' }} />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{s.title}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                              <Clock size={9} />
+                              <span className="text-2xs">{when}</span>
+                              <span className="text-2xs">· {turns} {turns === 1 ? 'query' : 'queries'}</span>
+                              {isCurrent && <span className="text-2xs font-bold" style={{ color: '#00b8e6' }}>· current</span>}
+                            </div>
+                          </div>
+                          <button type="button"
+                            onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
+                            aria-label="Delete conversation"
+                            className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md"
+                            style={{ color: '#ef4444', background: isDark ? 'rgba(239,68,68,0.1)' : 'rgba(239,68,68,0.08)' }}>
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>

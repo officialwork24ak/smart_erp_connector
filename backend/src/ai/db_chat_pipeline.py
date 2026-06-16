@@ -376,10 +376,15 @@ Rules:
 - For detailed per-item sales with product attributes → dbo.VW_MB_POWERBI_SLSXNS_REPORT
 - For customer master data (name, address, DOB) → dbo.VwAICustomerDetails
 - For stock / inventory levels → dbo.VwAIStockData or dbo.VW_MB_POWERBI_STOCK_REPORT
-- For purchases / procurement → dbo.VW_MB_POWERBI_PURXNS_REPORT
+- For purchases / procurement → dbo.VW_MB_POWERBI_PURXNS_REPORT or dbo.VW_MB_POWERBI_PUR_REPORT
+- For purchase returns → dbo.VW_MB_POWERBI_PRT_REPORT or PURXNS_REPORT
+- For stock transfers out → dbo.VW_MB_POWERBI_STO_REPORT; transfers in → dbo.VW_MB_POWERBI_STI_REPORT
+- For footfall / bill count → dbo.VW_MB_POWERBI_SLS_BILLCOUNT or COUNT(DISTINCT CashmemoNo) on SLS_DATA_WITHOUT_ITEMID
+- For gross margin → dbo.VW_MB_POWERBI_SLSXNS_REPORT (NetSlsNetAmount vs NetSlsCostValue) or SLS_DATA (SalesNetAmount vs SalesCost)
 - For product/item catalog → dbo.VW_MB_POWERBI_PRODUCT_MASTER or dbo.VwMstItems
 - For salesperson dimension only (name lookup) → dbo.VwAISalesPerson
 - NEVER use dbo.VwAISalesPerson for sales queries — use dbo.VW_MB_POWERBI_SLS_DATA_WITHOUT_ITEMID which already has SalesPersonName
+- NEVER use dbo.VW_MB_POWERBI_APP_REPORT or dbo.VW_MB_POWERBI_APR_REPORT — empty/sparse; use SLS_DATA_WITHOUT_ITEMID or SLSXNS_REPORT instead
 
 Return ONLY a JSON object like:
 {
@@ -471,6 +476,45 @@ DATE PATTERNS — use EXACTLY these:
   Last N days       : [DateCol] >= CAST(DATEADD(day,-N,GETDATE()) AS DATE)
   NOTE: "YTD" always means Indian Financial Year (Apr 1 start), NOT Jan 1.
 
+PERIOD / SIDE-BY-SIDE COMPARISONS (this month vs last month, today vs same day last week, vs last year, etc.):
+- Return ONE result set only. Never use semicolons or multiple batches.
+- CRITICAL: the result MUST make every period distinguishable. The reader has to tell the periods apart.
+- WHEN COMPARING ACROSS A DIMENSION (by branch / category / department / supplier / salesperson, or any
+  per-row breakdown): use CONDITIONAL AGGREGATION so each period is its OWN COLUMN and there is exactly
+  ONE row per dimension value. This is the PREFERRED pattern. Example — today vs same day last week, by branch:
+    SELECT [BranchAlias],
+           SUM(CASE WHEN CAST([CashmemoDt] AS DATE) = CAST(GETDATE() AS DATE)
+                    THEN [SalesNetAmount] ELSE 0 END) AS TodaySales,
+           SUM(CASE WHEN CAST([CashmemoDt] AS DATE) = CAST(DATEADD(day,-7,GETDATE()) AS DATE)
+                    THEN [SalesNetAmount] ELSE 0 END) AS SameDayLastWeekSales
+    FROM [dbo].[VW_MB_POWERBI_SLS_DATA_WITHOUT_ITEMID] WITH (NOLOCK)
+    WHERE CAST([CashmemoDt] AS DATE) IN (CAST(GETDATE() AS DATE), CAST(DATEADD(day,-7,GETDATE()) AS DATE))
+    GROUP BY [BranchAlias]
+    ORDER BY TodaySales DESC
+  Add a GrowthPct column = (current - prior) * 100.0 / NULLIF(prior, 0) when the user mentions growth/change.
+- WHEN COMPARING TOTALS ONLY (no dimension breakdown): use UNION ALL, but EVERY SELECT MUST begin with a
+  literal PeriodLabel column AND the value column MUST use the SAME alias in every branch of the UNION:
+    SELECT N'Today' AS PeriodLabel, SUM([SalesNetAmount]) AS Sales FROM ... WHERE <today>
+    UNION ALL
+    SELECT N'Same Day Last Week' AS PeriodLabel, SUM([SalesNetAmount]) AS Sales FROM ... WHERE <same day last week>
+- NEVER UNION ALL two periods without a PeriodLabel column, and NEVER give the value columns different
+  aliases across a UNION — SQL keeps only the first SELECT's names, so the periods become indistinguishable.
+- Use SalesNetAmount + CashmemoDt on SLS_DATA_WITHOUT_ITEMID for revenue comparisons.
+
+SAFETY / PERFORMANCE:
+- NEVER use dbo.VW_MB_POWERBI_APP_REPORT or dbo.VW_MB_POWERBI_APR_REPORT.
+- For "zero sales" / full catalog anti-joins, always use TOP 100 (or TOP 50) on the outer query.
+- INVENTORY / STOCK queries (stock on hand, low stock, out-of-stock, dead / slow-moving
+  stock, inventory aging) read very large stock views — NEVER return every row unfiltered.
+  ALWAYS bound them: add TOP 100, ORDER BY the stock-quantity column from the schema, and
+  apply a sensible filter — e.g. low stock = quantity between 1 and a small threshold (say <= 10),
+  out of stock = quantity <= 0. When the user asks "by branch" or "by category", AGGREGATE
+  (SUM(...) GROUP BY branch/category) instead of listing every SKU. Keep stock queries lean so
+  they return in a few seconds, not by scanning the whole view.
+- Footfall = COUNT(DISTINCT [CashmemoNo]) unless a dedicated bill-count view is in schema.
+- Bills / invoices: always COUNT(DISTINCT [CashmemoNo]) — line-level rows repeat the same bill.
+- Average order value / basket / ATV: SUM([SalesNetAmount]) / NULLIF(COUNT(DISTINCT [CashmemoNo]), 0), not AVG(line amount).
+
 Return ONLY a JSON object:
 {
   "sql": "<valid T-SQL SELECT statement>",
@@ -550,6 +594,13 @@ def _sql_cte_names(sql: str) -> set[str]:
 
 def validate_sql(sql: str, snap: dict, selected_views: list[str]) -> list[str]:
     problems: list[str] = []
+    sql_upper = sql.upper()
+    for dead in ("VW_MB_POWERBI_APP_REPORT", "VW_MB_POWERBI_APR_REPORT"):
+        if dead in sql_upper:
+            problems.append(
+                f"{dead} is sparse/empty in this database — use "
+                "VW_MB_POWERBI_SLS_DATA_WITHOUT_ITEMID or VW_MB_POWERBI_SLSXNS_REPORT instead."
+            )
     objects = snap.get("objects", {})
     objects_lower = {k.lower(): k for k in objects}
     aliases = _sql_aliases(sql)
@@ -580,6 +631,12 @@ def validate_sql(sql: str, snap: dict, selected_views: list[str]) -> list[str]:
     col_pattern = re.compile(r"\[(\w+)\]")
     for m in col_pattern.finditer(sql):
         col = m.group(1)
+        # Skip schema/table qualifiers in dotted names like [dbo].[View] or [schema].[table] —
+        # these are NOT columns. A bracketed token immediately followed by '.' is a qualifier.
+        if col.lower() in ("dbo", "sys", "information_schema"):
+            continue
+        if sql[m.end():m.end() + 1] == ".":
+            continue
         if col.isdigit() or col.lower() in aliases:
             continue
         if col.lower() in table_tokens:
@@ -637,10 +694,60 @@ def _fmt_inr_narrative(amount: float) -> str:
     return f"{sign}₹{a:,.0f}"
 
 
-def _try_period_comparison_summary(records: list[dict]) -> Optional[str]:
+def _norm_period_label(label: str) -> str:
+    return re.sub(r"[_\s]+", " ", str(label or "").lower()).strip()
+
+
+def _is_current_period_label(label: str) -> bool:
+    l = _norm_period_label(label)
+    return (
+        l in ("this month", "thismonth", "mtd", "current")
+        or l.startswith("this ")
+        or "current ytd" in l
+        or "current qtd" in l
+        or "current mtd" in l
+    )
+
+
+def _is_prior_period_label(label: str) -> bool:
+    l = _norm_period_label(label)
+    if _is_current_period_label(label):
+        return False
+    return (
+        l in ("last month", "lastmonth", "prior", "previous")
+        or l.startswith("last ")
+        or "last year" in l
+        or l.endswith(" ly")
+        or l == "ly"
+        or "lastyear" in l.replace(" ", "")
+    )
+
+
+def _comparison_kind(labels: list[str], question: str = "") -> str:
+    """month | ytd | period — drives narration wording."""
+    joined = " ".join(_norm_period_label(l) for l in labels)
+    q = question.lower()
+    month_hint = any(
+        x in joined or x in q
+        for x in ("this month", "thismonth", "last month", "lastmonth", "previous month", "prior month")
+    )
+    ytd_hint = any(
+        x in joined or x in q
+        for x in ("ytd", "financial year", "fiscal year", "last year", "lastyear")
+    )
+    if month_hint and not ytd_hint:
+        return "month"
+    if ytd_hint:
+        return "ytd"
+    return "period"
+
+
+def _try_period_comparison_summary(
+    records: list[dict], question: str = ""
+) -> Optional[str]:
     """
     Deterministic summary for 2-row current-vs-prior period tables
-    (e.g. ytd_growth_vs_last_year) — avoids LLM crore/lakh mistakes.
+    (e.g. month-over-month or YTD vs LY) — avoids LLM crore/lakh mistakes.
     """
     if len(records) != 2:
         return None
@@ -664,26 +771,51 @@ def _try_period_comparison_summary(records: list[dict]) -> Optional[str]:
         return label, val if val is not None else 0.0
 
     rows = [_row_val(r) for r in records]
-    cur = next((r for r in rows if "current" in r[0].lower()), rows[0])
-    prior = next(
-        (r for r in rows if any(h in r[0].lower() for h in ("last", "prior", "previous", "ly"))),
-        rows[1] if rows[1][0] != cur[0] else rows[0],
-    )
+    cur = next((r for r in rows if _is_current_period_label(r[0])), None)
+    prior = next((r for r in rows if _is_prior_period_label(r[0])), None)
+    if cur is None:
+        cur = next((r for r in rows if "current" in _norm_period_label(r[0])), rows[0])
+    if prior is None:
+        prior = next(
+            (r for r in rows if r[0] != cur[0]),
+            rows[1] if rows[1][0] != cur[0] else rows[0],
+        )
     if prior[0] == cur[0]:
         return None
 
+    kind = _comparison_kind([cur[0], prior[0]], question)
     cur_amt, prior_amt = cur[1], prior[1]
     delta = cur_amt - prior_amt
     growth = (delta / prior_amt * 100) if prior_amt else None
     growth_txt = f"{growth:+.1f}%" if growth is not None else "N/A"
     direction = "ahead of" if delta > 0 else "behind" if delta < 0 else "even with"
 
+    if kind == "month":
+        ref = "last month"
+        footnote = (
+            "This month is MTD (calendar month start through today); "
+            "last month is the full prior calendar month. "
+            "Revenue uses SUM(SalesNetAmount) on CashmemoDt, matching the Analytics dashboard."
+        )
+    elif kind == "ytd":
+        ref = "last year (same FY day-range)"
+        footnote = (
+            "Figures use Indian FY YTD (1 April through today), "
+            "compared to the same calendar day-range last financial year — matching the Analytics dashboard."
+        )
+    else:
+        ref = prior[0]
+        footnote = (
+            f"Compared {_norm_period_label(cur[0])} vs {_norm_period_label(prior[0])} "
+            "using SalesNetAmount on CashmemoDt."
+        )
+
     return (
         f"{cur[0]} sales are {_fmt_inr_narrative(cur_amt)} "
         f"({_fmt_inr_narrative(prior_amt)} for {prior[0]}). "
-        f"That is {_fmt_inr_narrative(delta)} {direction} last year "
-        f"({growth_txt} growth). "
-        f"Figures use Indian FY YTD (1 April through today), matching the Analytics dashboard."
+        f"That is {_fmt_inr_narrative(delta)} {direction} {ref} "
+        f"({growth_txt} change). "
+        f"{footnote}"
     )
 
 
@@ -871,12 +1003,78 @@ def _views_referenced_in_sql(sql: str, snap: dict) -> list[str]:
     return found[:4]
 
 
+def _is_comparison_question(question: str) -> bool:
+    """True when the user is asking to compare two+ periods/groups (vs, versus, this/last, etc.)."""
+    q = (question or "").lower()
+    return (
+        any(t in q for t in ("compare", " vs ", " vs.", "versus", " v/s ", "compared to", "against"))
+        or (" last " in q and (" this " in q or "today" in q or " current" in q))
+        or ("same day" in q or "same period" in q or "same month" in q or "same quarter" in q or "same week" in q)
+        or ("month-over-month" in q or "month over month" in q or "mom" in q)
+        or ("year-over-year" in q or "year over year" in q or "yoy" in q)
+        or ("grew" in q and ("declin" in q or "fell" in q or "drop" in q))
+    )
+
+
+# A verified FAQ template only "handles" a comparison if its id signals one of these.
+_COMPARISON_FAQ_HINTS = (
+    "compare", "_vs_", "vs_last", "yoy", "year_over_year", "mom", "month_over_month",
+    "growth", "_comparison", "comparison", "trend", "since",
+)
+
+
+def _faq_handles_comparison(template_id: Optional[str]) -> bool:
+    t = (template_id or "").lower()
+    return any(h in t for h in _COMPARISON_FAQ_HINTS)
+
+
+def _comparison_shape_problem(question: str, sql: str) -> Optional[str]:
+    """
+    Detect a COMPARISON question whose generated SQL uses UNION ALL without a period-label
+    column. In that shape SQL Server keeps only the FIRST SELECT's column names, so the two
+    periods collapse into one indistinguishable column (e.g. both show as 'TodaySales').
+    Returns a repair instruction (fed back to the model) or None if the SQL is fine.
+    """
+    import re as _re
+
+    if not _is_comparison_question(question):
+        return None
+    q = (question or "").lower()  # noqa: F841 (kept for parity / future use)
+
+    s = (sql or "").lower()
+    if "union all" not in s:
+        return None  # single SELECT / conditional aggregation — already correct shape
+
+    # A proper UNION comparison labels each period with a literal string aliased as a label-ish column.
+    has_label = bool(
+        _re.search(
+            r"n?'[^']+'\s+as\s+\[?(period|periodlabel|label|metric|monthname|day|week|year|quarter|name)\b",
+            s,
+        )
+    )
+    if has_label:
+        return None
+
+    return (
+        "COMPARISON-SHAPE ERROR: this is a comparison but the SQL uses UNION ALL without a period "
+        "label, so the periods are indistinguishable (UNION keeps only the first SELECT's column "
+        "names — the second period's alias is dropped). REWRITE using CONDITIONAL AGGREGATION: ONE "
+        "row per dimension with ONE column per period, e.g. "
+        "SUM(CASE WHEN <period A> THEN <amount> ELSE 0 END) AS <PeriodAName>, "
+        "SUM(CASE WHEN <period B> THEN <amount> ELSE 0 END) AS <PeriodBName>, GROUP BY the dimension, "
+        "and add a GrowthPct column when growth/change is implied. If there is no dimension (totals "
+        "only), keep UNION ALL but give EVERY SELECT a literal PeriodLabel column. Do NOT return "
+        "UNION ALL without per-period labels."
+    )
+
+
 async def run_pipeline(
     question: str,
-    provider: str = "claude",
+    provider: str = "openai",
     snap: Optional[dict] = None,
     top_n: Optional[int] = None,
     execute_fn: Optional[Callable] = None,
+    force_dynamic: bool = False,
 ) -> PipelineResult:
     """
     Full db_chat pipeline for the AI Query page.
@@ -915,7 +1113,17 @@ async def run_pipeline(
             conversational=True,
         )
 
-    faq = try_verified_faq(question)
+    faq = None if force_dynamic else try_verified_faq(question)
+    # A comparison question (this vs last, etc.) must show BOTH periods. Single-period FAQ
+    # templates can't — so for comparison questions, skip any matched FAQ that isn't itself a
+    # comparison template and fall through to the adaptive SQL generator (which builds the
+    # multi-period query). This does NOT modify any template — it only changes routing.
+    if faq and _is_comparison_question(question) and not _faq_handles_comparison(faq.get("template_id")):
+        logger.info(
+            "Comparison question — skipping single-period FAQ, using adaptive SQL",
+            template_id=faq.get("template_id"),
+        )
+        faq = None
     if faq and (faq.get("sql") or "").strip():
         sql = str(faq["sql"]).strip()
         explanation = str(
@@ -973,6 +1181,12 @@ async def run_pipeline(
         raise ValueError("AI generated a non-SELECT statement — blocked for safety.")
 
     problems = validate_sql(sql, snap, selected_views)
+    # Semantic guard: a comparison rendered as an unlabeled UNION ALL is valid SQL but unreadable —
+    # force a repair pass so each period gets its own labelled column.
+    if not from_template:
+        _cmp_problem = _comparison_shape_problem(question, sql)
+        if _cmp_problem:
+            problems = [*(problems or []), _cmp_problem]
     if problems:
         problem_str = "; ".join(problems)
         warnings.append(f"SQL validation issues: {problem_str}")
@@ -1020,7 +1234,7 @@ async def run_pipeline(
         records = records[: cfg.DATASET_HARD_CAP]
         warnings.append(f"Results capped at {cfg.DATASET_HARD_CAP:,} rows.")
 
-    summary = _try_period_comparison_summary(records)
+    summary = _try_period_comparison_summary(records, question)
     if not summary:
         summary = await explain_results(
             question, sql, records, row_count, truncated, ai_provider

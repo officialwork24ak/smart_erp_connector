@@ -1,0 +1,261 @@
+[
+  {
+    "category": "sales",
+    "question": "What's our total revenue this month?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "sales",
+    "question": "Show revenue by branch for the quarter",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "sales",
+    "question": "Which department earns the most?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "sales",
+    "question": "Daily sales trend for the last 30 days",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "sales",
+    "question": "Compare this month's revenue to last month",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "sales",
+    "question": "What's the average order value right now?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "sales",
+    "question": "How many bills did we generate today?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "sales",
+    "question": "Revenue split by category as a percentage",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "products",
+    "question": "Top 10 good performing products",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "products",
+    "question": "Worst selling articles this month",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "products",
+    "question": "Which products had zero sales recently?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "products",
+    "question": "Highest MRP items we sold",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 181.1
+  },
+  {
+    "category": "products",
+    "question": "Sales by article number for the quarter",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "branches",
+    "question": "Which branch has the highest footfall?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "branches",
+    "question": "Rank all branches by units sold",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "branches",
+    "question": "Slowest branch this month",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "branches",
+    "question": "Branch-wise average basket size",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "customers",
+    "question": "Top 10 customers by spend this month",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "customers",
+    "question": "How many unique customers bought today?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "customers",
+    "question": "New customer signups this quarter",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "customers",
+    "question": "Which customers visit most often?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "suppliers",
+    "question": "Revenue by supplier this quarter",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.1
+  },
+  {
+    "category": "suppliers",
+    "question": "Top 5 suppliers by units sold",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "suppliers",
+    "question": "Which supplier contributes the most to sales?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "salespeople",
+    "question": "Who is our best salesperson this month?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.2
+  },
+  {
+    "category": "salespeople",
+    "question": "Rank salespersons by revenue",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.6
+  },
+  {
+    "category": "salespeople",
+    "question": "Average sale value per salesperson",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.1
+  },
+  {
+    "category": "margins",
+    "question": "Which branch gives the most discount?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.1
+  },
+  {
+    "category": "margins",
+    "question": "Gross margin by category",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 182.2
+  },
+  {
+    "category": "margins",
+    "question": "Total discount given this month",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  },
+  {
+    "category": "margins",
+    "question": "Products sold below cost",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.2
+  },
+  {
+    "category": "inventory",
+    "question": "What's low on stock right now?",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.1
+  },
+  {
+    "category": "inventory",
+    "question": "Stock on hand by category",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.1
+  },
+  {
+    "category": "inventory",
+    "question": "Inventory value by branch",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.1
+  },
+  {
+    "category": "purchases",
+    "question": "Total purchases this month",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.1
+  },
+  {
+    "category": "purchases",
+    "question": "Purchase returns this quarter",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.1
+  },
+  {
+    "category": "purchases",
+    "question": "Stock transfers out by branch",
+    "ok": false,
+    "error": "timeout>180.0s",
+    "elapsed_s": 180.0
+  }
+]

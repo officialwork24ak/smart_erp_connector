@@ -11,8 +11,8 @@
       "catalog_no": 1,
       "fqn": "dbo.VW_MB_POWERBI_APP_REPORT",
       "short_name": "VW_MB_POWERBI_APP_REPORT",
-      "title": "Primary Sales View",
-      "description": "This is the most important view — used for 90% of all analytics.",
+      "title": "Legacy Sales View (EMPTY — do not use)",
+      "description": "DEPRECATED / EMPTY in this database — returns 0 rows. Do NOT generate SQL against this view. Use VW_MB_POWERBI_SLS_DATA_WITHOUT_ITEMID (SalesNetAmount/CashmemoDt/SalesQuantity) instead.",
       "object_type": "view",
       "column_count": 33,
       "columns": [
@@ -587,8 +587,8 @@
       "catalog_no": 7,
       "fqn": "dbo.VW_MB_POWERBI_SLS_DATA_WITHOUT_ITEMID",
       "short_name": "VW_MB_POWERBI_SLS_DATA_WITHOUT_ITEMID",
-      "title": "Salesperson Top-N",
-      "description": "Used for the Top Salespersons chart.",
+      "title": "Primary Sales View (populated)",
+      "description": "PRIMARY sales/revenue view — use this for almost all sales, revenue, branch, category, department, supplier, customer-purchase, salesperson and product/performance analytics. Revenue=SUM(SalesNetAmount), units=SUM(SalesQuantity), bills=COUNT(DISTINCT CashmemoNo), date filter on CashmemoDt. This is the populated replacement for the empty VW_MB_POWERBI_APP_REPORT.",
       "object_type": "view",
       "column_count": 32,
       "columns": [

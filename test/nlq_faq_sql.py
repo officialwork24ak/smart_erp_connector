@@ -276,18 +276,19 @@ ORDER BY TotalSales ASC
 def _sql_trend_last_30d(_q: str) -> Dict[str, Any]:
     sql = f"""
 SELECT TOP (31)
-    CAST(s.[XnDt] AS DATE) AS SalesDate,
-    CAST(SUM(s.[NetAmount]) AS decimal(18, 2)) AS TotalSales
-FROM {_APP} s WITH (NOLOCK)
-WHERE {_last_30d_where("s")}
-GROUP BY CAST(s.[XnDt] AS DATE)
+    CAST(sp.[CashmemoDt] AS DATE) AS SalesDate,
+    CAST(SUM(sp.[SalesNetAmount]) AS decimal(18, 2)) AS TotalSales
+FROM {_SALESPERSON} sp WITH (NOLOCK)
+WHERE sp.[CashmemoDt] >= DATEADD(DAY, -30, CAST(GETDATE() AS DATE))
+  AND sp.[CashmemoDt] < DATEADD(DAY, 1, CAST(GETDATE() AS DATE))
+GROUP BY CAST(sp.[CashmemoDt] AS DATE)
 ORDER BY SalesDate ASC
 """
     return _blob(
         "sales_trend_last_30_days",
         sql,
         "Daily net sales for the last 30 days, one row per day.",
-        ["Rolling 30-day window ending today."],
+        ["Rolling 30-day window ending today.", "Uses canonical CashmemoDt/SalesNetAmount (dashboard-aligned)."],
     )
 
 
@@ -296,21 +297,21 @@ def _sql_compare_this_month_vs_last(_q: str) -> Dict[str, Any]:
 WITH Sales AS (
     SELECT
         CASE
-            WHEN s.[XnDt] >= DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
-             AND s.[XnDt] < DATEADD(DAY, 1, CAST(GETDATE() AS DATE))
+            WHEN sp.[CashmemoDt] >= DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+             AND sp.[CashmemoDt] < DATEADD(DAY, 1, CAST(GETDATE() AS DATE))
                 THEN N'ThisMonth'
-            WHEN s.[XnDt] >= DATEADD(MONTH, -1, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1))
-             AND s.[XnDt] < DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+            WHEN sp.[CashmemoDt] >= DATEADD(MONTH, -1, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1))
+             AND sp.[CashmemoDt] < DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
                 THEN N'LastMonth'
         END AS PeriodLabel,
-        s.[NetAmount]
-    FROM {_APP} s WITH (NOLOCK)
-    WHERE s.[XnDt] >= DATEADD(MONTH, -1, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1))
-      AND s.[XnDt] < DATEADD(DAY, 1, CAST(GETDATE() AS DATE))
+        sp.[SalesNetAmount]
+    FROM {_SALESPERSON} sp WITH (NOLOCK)
+    WHERE sp.[CashmemoDt] >= DATEADD(MONTH, -1, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1))
+      AND sp.[CashmemoDt] < DATEADD(DAY, 1, CAST(GETDATE() AS DATE))
 )
 SELECT
     PeriodLabel,
-    CAST(SUM([NetAmount]) AS decimal(18, 2)) AS TotalSales
+    CAST(SUM([SalesNetAmount]) AS decimal(18, 2)) AS TotalSales
 FROM Sales
 WHERE PeriodLabel IS NOT NULL
 GROUP BY PeriodLabel
@@ -323,6 +324,7 @@ ORDER BY PeriodLabel
         [
             "ThisMonth = MTD through today; LastMonth = full prior calendar month.",
             "Compare growth as (ThisMonth - LastMonth) / LastMonth in your app if needed.",
+            "Uses canonical CashmemoDt/SalesNetAmount (dashboard-aligned).",
         ],
     )
 
@@ -2385,6 +2387,15 @@ _register(
         r"best\s+selling\s+products?\s+(?:this\s+month|mtd)?",
         r"most\s+sold\s+products?\s+(?:this\s+month|mtd)?",
         r"top\s+selling\s+products?\s+(?:this\s+month|mtd)?",
+        # "top 10 good/best/top performing product(s)", "top performing products"
+        r"top\s+\d+\s+(?:good|best|top|well)\s+performing\s+products?",
+        r"top\s+\d+\s+performing\s+products?",
+        r"(?:good|best|top|well)[-\s]+performing\s+products?",
+        r"performing\s+products?",
+        # bare "top N products" / "best products" — but NOT "top N products by ... quarter/year"
+        r"top\s+\d+\s+products?\b(?!\s+by\b)",
+        r"best\s+products?\b(?!\s+by\b)",
+        r"top\s+products?(?:\s+(?:this\s+month|mtd|overall|right\s+now|now))?$",
     ],
     _sql_top_products_mtd,
 )
@@ -2438,6 +2449,9 @@ _register(
     [
         r"compare\s+this\s+month\s+sales?\s+vs\.?\s+last\s+month",
         r"compare\s+(?:this\s+)?month(?:'?s)?\s+(?:sales?\s+)?vs\.?\s+last\s+month",
+        r"compare\s+(?:this\s+)?month(?:'?s)?\s+(?:sales?|revenue)?\s+to\s+last\s+month",
+        r"compare\s+(?:this\s+)?month(?:'?s)?\s+(?:sales?|revenue)?\s+with\s+last\s+month",
+        r"this\s+month(?:'?s)?\s+(?:sales?|revenue)?\s+compared\s+to\s+last\s+month",
         r"compare\s+last\s+month\s+(?:vs\.?|versus|to)\s+(?:this\s+)?month",
         r"this\s+month\s+vs\.?\s+last\s+month\s+sales?",
     ],

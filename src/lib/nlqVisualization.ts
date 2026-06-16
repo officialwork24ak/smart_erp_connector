@@ -7,6 +7,14 @@ import { fmtCount, fmtLakhs, fmtLakhsAxis, fmtRupees } from './format';
 export interface ChartPoint {
   label: string;
   value: number;
+  // Multi-series comparisons carry each period/metric as its own numeric field
+  // (e.g. TodaySales, SameDayLastWeekSales) so the chart can plot grouped bars.
+  [series: string]: number | string;
+}
+
+export interface ChartSeries {
+  key: string;
+  name: string;
 }
 
 export interface KPICard {
@@ -27,6 +35,8 @@ export interface NLQVisualization {
   labelKey: string;
   kpiCards: KPICard[];
   table?: ResultTable;
+  // When set (>=2), the chart renders grouped bars — one bar per series per label.
+  series?: ChartSeries[];
 }
 
 const NUMERIC_HINTS = [
@@ -41,7 +51,10 @@ const LABEL_HINTS = [
   'city', 'period', 'date', 'day', 'hour', 'season', 'group', 'segment',
 ];
 
-const DATE_COL_HINTS = ['monthstart', 'monthlabel', 'transactiondate', 'invoicedt', 'xndt', 'date', 'day', 'periodlabel', 'latestmonth'];
+// NOTE: do NOT include the bare substring 'day' — it false-matches metric columns like
+// 'TodaySales' / 'SameDayLastWeekSales'. Real day-named date columns are caught by the
+// value-shape check in isDateColumn (their values look like dates).
+const DATE_COL_HINTS = ['monthstart', 'monthlabel', 'transactiondate', 'invoicedt', 'xndt', 'date', 'periodlabel', 'latestmonth'];
 
 const SKIP_COLS = new Set(['id', 'rownum', 'rn']);
 
@@ -306,6 +319,15 @@ function isPercentColumn(col?: string): boolean {
   return PERCENT_COL_HINTS.some(h => l.includes(h));
 }
 
+/** Unit/scale family of a numeric column — only same-family columns may share grouped bars. */
+function numericCategory(col?: string): 'sales' | 'count' | 'rupeeAvg' | 'percent' | 'other' {
+  if (isPercentColumn(col)) return 'percent';
+  if (isRupeeAvgColumn(col)) return 'rupeeAvg';
+  if (isCountColumn(col)) return 'count';
+  if (isSalesColumn(col)) return 'sales';
+  return 'other';
+}
+
 function formatNumeric(n: number, col?: string, opts?: { axis?: boolean }): string {
   if (isPercentColumn(col)) return `${n.toFixed(2)}%`;
   if (isCountColumn(col)) return fmtCount(n);
@@ -405,6 +427,43 @@ export function buildNLQVisualization(
       labelKey,
       kpiCards: cards.slice(0, 8),
     };
+  }
+
+  // Multi-series comparison: one dimension + 2+ numeric columns of the SAME unit family
+  // (e.g. TodaySales vs SameDayLastWeekSales, or This/Last/LastYear revenue). Render every
+  // period as its own bar so the comparison is visible — not just the first column.
+  if (!dateKey && rowCount > 1 && rowCount <= 200 && dimKeys.length >= 1) {
+    const numericCols = Object.keys(records[0]).filter(
+      c => isNumericColumn(records, c) && !SKIP_COLS.has(c.toLowerCase()),
+    );
+    if (numericCols.length >= 2) {
+      const byCat = new Map<string, string[]>();
+      for (const c of numericCols) {
+        const cat = numericCategory(c);
+        byCat.set(cat, [...(byCat.get(cat) ?? []), c]);
+      }
+      // Prefer money/count/avg series; fall back to percent so "contribution % this vs last
+      // quarter" groups both % columns. A lone growth-% next to a money column won't group
+      // (its category only has 1 member), so mixed-scale bars are still avoided.
+      const chosen = ['sales', 'count', 'rupeeAvg', 'percent', 'other'].find(cat => (byCat.get(cat)?.length ?? 0) >= 2);
+      if (chosen) {
+        const seriesCols = (byCat.get(chosen) as string[]).slice(0, 4);
+        const points: ChartPoint[] = records
+          .map((r, i) => {
+            const p: ChartPoint = { label: String(r[labelKey] ?? `#${i + 1}`).slice(0, 28), value: toNum(r[seriesCols[0]]) ?? 0 };
+            for (const c of seriesCols) p[c] = toNum(r[c]) ?? 0;
+            return p;
+          })
+          .sort((a, b) => (b.value as number) - (a.value as number));
+        const series: ChartSeries[] = seriesCols.map(c => ({ key: c, name: c.replace(/([A-Z])/g, ' $1').trim() }));
+        const cols0 = Object.keys(records[0]).slice(0, 8);
+        const tbl: ResultTable = {
+          columns: cols0,
+          rows: records.slice(0, NLQ_TABLE_MAX_ROWS).map(r => cols0.map(c => formatCell(r[c], c))),
+        };
+        return { chartType: 'bar', chartData: points, valueKey: seriesCols[0], labelKey, kpiCards: [], series, table: tbl };
+      }
+    }
   }
 
   const { chartData, labelKey: chartLabelKey, valueKey: chartValueKey } = buildChartData(

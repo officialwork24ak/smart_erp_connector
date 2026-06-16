@@ -42,21 +42,27 @@ def _by_name() -> Dict[str, Dict[str, Any]]:
 # Each entry is (view_short_name, score_weight, [keyword_triggers]).
 # The primary sales view is included by default for most queries.
 
-_PRIMARY_VIEW = "VW_MB_POWERBI_APP_REPORT"  # 90% of queries
+# PRIMARY populated sales view. NOTE: the legacy VW_MB_POWERBI_APP_REPORT
+# (NetAmount/XnDt/AppQty) is EMPTY in this database — never route to it, or
+# generated SQL returns 0 rows. Everything sales/revenue/performance related
+# uses this canonical view (SalesNetAmount/CashmemoDt/SalesQuantity/CashmemoNo).
+_PRIMARY_VIEW = "VW_MB_POWERBI_SLS_DATA_WITHOUT_ITEMID"  # populated; ~90% of queries
 
 _ROUTING: List[tuple] = [
-    # ── Sales & Revenue ────────────────────────────────────────────────────
-    ("VW_MB_POWERBI_APP_REPORT", 3, [
-        "sale", "revenue", "sales", "net amount", "net sales",
-        "branch", "category", "department", "month", "year", "quarter",
-        "mtd", "ytd", "qtd", "analytics", "performance", "kpi",
-        "bill", "bills", "footfall", "traffic", "transactions", "trend",
-        "revenue trend", "growth", "top branch", "top category",
-    ]),
-    # ── Salesperson / Staff ────────────────────────────────────────────────
+    # ── Sales / Revenue / Performance — PRIMARY view (also covers salesperson) ──
     ("VW_MB_POWERBI_SLS_DATA_WITHOUT_ITEMID", 4, [
+        "sale", "sales", "revenue", "net amount", "net sales", "net revenue",
+        "branch", "category", "department", "month", "year", "quarter",
+        "mtd", "ytd", "qtd", "analytics", "performance", "performing", "kpi",
+        "bill", "bills", "footfall", "traffic", "transaction", "transactions", "trend",
+        "revenue trend", "growth", "top branch", "top category", "top department",
+        "top product", "top products", "best product", "best products",
+        "top selling", "best selling", "good performing", "best performing",
+        "product", "products", "item", "items",
         "salesperson", "sales person", "sales rep", "who sold", "staff",
         "employee", "agent", "top seller", "best seller", "sales associate",
+        "discount", "margin", "average order", "average ticket", "basket",
+        "atv", "aov", "ats",
     ]),
     ("VwAISalesPerson", 3, [
         "salesperson", "sales person", "sales rep", "salesperson name",
@@ -259,15 +265,19 @@ _BUSINESS_GLOSSARY = """
   started 1 April of the PREVIOUS calendar year. Always prefer @startDate/@endDate,
   which the backend has already resolved to the correct FY window.
 - **QTD**: Quarter-to-Date (1st of current quarter → today)
-- **NetAmount / NetSlsNetAmount**: Net sales revenue after discounts — PRIMARY revenue metric
-- **BillCount**: Number of invoices/transactions — footfall KPI
-- **AppQty**: Billed quantity (units sold)
-- **MrpValue**: Total MRP value (before discounts)
-- **CostValue**: Total cost value (for margin calculation)
+- **SalesNetAmount**: Net sales revenue after discounts on the PRIMARY view
+  (VW_MB_POWERBI_SLS_DATA_WITHOUT_ITEMID) — this is the PRIMARY revenue metric. SUM it for revenue.
+- **CashmemoDt**: Bill / transaction date on the primary view — USE THIS for date filtering.
+- **CashmemoNo**: Bill / invoice number — COUNT(DISTINCT [CashmemoNo]) for bills / transactions / footfall.
+- **SalesQuantity**: Units sold — SUM it for quantity.
+- **SalesCost**: Cost of goods sold (for margin = SalesNetAmount − SalesCost).
+- **ItemMRP**: Unit MRP (MRP value = SUM(ItemMRP * SalesQuantity), before discounts).
 - **BranchAlias**: Short branch name used in all groupings
 - **CategoryShortName**: Short category name used in all groupings
 - **DepartmentShortName**: Short department name used in all groupings
-- **XnDt**: Transaction date — USE THIS for date filtering on VW_MB_POWERBI_APP_REPORT
+- **SupplierName / SupplierAlias**: Supplier identity used in supplier groupings
+- **DO NOT USE** NetAmount, XnDt, AppQty, BillCount or the VW_MB_POWERBI_APP_REPORT view —
+  that legacy view is EMPTY in this database and will return 0 rows.
 - **@startDate / @endDate**: Named T-SQL parameters for date range filtering
 """
 
