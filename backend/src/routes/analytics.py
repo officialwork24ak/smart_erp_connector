@@ -350,12 +350,24 @@ async def analytics_page_endpoint(
 
     try:
         if period == "custom":
-            dash = await get_dashboard(period, start_date, end_date)
+            # Fetch dashboard + departments for the custom range in parallel so the
+            # Department-wise Sales chart renders (previously returned [] → "No data").
+            dash, dept_res = await asyncio.gather(
+                get_dashboard(period, start_date, end_date),
+                run_analytics_sql(get_department_chart(period, top_n, start_date, end_date)),
+                return_exceptions=True,
+            )
+            if isinstance(dash, Exception):
+                logger.warning("analytics-page custom dashboard failed", error=str(dash))
+                dash = None
+            departments = dept_res if isinstance(dept_res, list) else []
+            if isinstance(dept_res, Exception):
+                logger.warning("analytics-page custom departments failed", error=str(dept_res))
             return {
                 "success": True,
                 "period": period,
                 "bundle": None,
-                "departments": [],
+                "departments": departments,
                 "dashboard": dash,
             }
 
