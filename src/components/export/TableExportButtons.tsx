@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, FileSpreadsheet, FileText, Upload, Loader2, ExternalLink } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, Upload, Loader2, ExternalLink, Check, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -180,28 +180,47 @@ export default function TableExportButtons({
 export function ExportToast({ notify, onClose }: { notify: ExportNotify | null; onClose: () => void }) {
   if (!notify) return null;
   const ok = notify.type === 'success';
+  // Prominent toast: solid, high-contrast colours that read clearly in BOTH light and dark themes.
+  const accent = ok ? '#059669' : '#dc2626';        // emerald-600 / red-600 — strong on white & dark
+  const accentEdge = ok ? '#34d399' : '#f87171';
   return (
     <div
-      className="fixed bottom-6 right-6 z-[100] flex items-center gap-2 px-4 py-3 rounded-xl text-xs font-medium shadow-lg max-w-sm"
+      className="export-toast-pop fixed top-6 right-6 z-[100] flex items-center gap-3 pl-4 pr-3 py-3.5 rounded-xl text-sm font-semibold max-w-md"
       style={{
-        background: ok ? 'rgba(0,230,122,0.12)' : 'rgba(239,68,68,0.12)',
-        border: ok ? '1px solid rgba(0,230,122,0.3)' : '1px solid rgba(239,68,68,0.3)',
-        color: ok ? '#00e67a' : '#ef4444',
+        background: accent,
+        border: `1px solid ${accentEdge}`,
+        color: '#ffffff',
+        boxShadow: `0 12px 32px -6px ${ok ? 'rgba(5,150,105,0.55)' : 'rgba(220,38,38,0.55)'}, 0 0 0 4px ${ok ? 'rgba(5,150,105,0.18)' : 'rgba(220,38,38,0.18)'}`,
       }}
+      role="status"
+      aria-live="polite"
     >
-      <span className="flex-1">{notify.message}</span>
+      <span
+        className="flex items-center justify-center rounded-full shrink-0"
+        style={{ width: 26, height: 26, background: 'rgba(255,255,255,0.22)' }}
+      >
+        {ok ? <Check size={16} strokeWidth={3} color="#ffffff" /> : <X size={16} strokeWidth={3} color="#ffffff" />}
+      </span>
+      <span className="flex-1 leading-snug">{notify.message}</span>
       {notify.link && (
         <a
           href={notify.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 underline"
+          className="inline-flex items-center gap-1 font-bold underline underline-offset-2 px-2 py-1 rounded-lg shrink-0"
+          style={{ background: 'rgba(255,255,255,0.18)', color: '#ffffff' }}
         >
-          Open <ExternalLink size={10} />
+          Open <ExternalLink size={12} />
         </a>
       )}
-      <button type="button" onClick={onClose} className="opacity-70 hover:opacity-100 ml-1">
-        ×
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Dismiss"
+        className="shrink-0 flex items-center justify-center rounded-lg opacity-90 hover:opacity-100 transition-opacity"
+        style={{ width: 24, height: 24, background: 'rgba(255,255,255,0.16)', color: '#ffffff' }}
+      >
+        <X size={14} strokeWidth={2.5} />
       </button>
     </div>
   );
