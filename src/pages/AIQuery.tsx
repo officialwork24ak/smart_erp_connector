@@ -377,16 +377,18 @@ const ResultChart = memo(function ResultChart({
     borderRadius: 10,
     fontSize: 11,
   };
-  const barHeight = type === 'bar'
-    ? (plotData.length > 30 ? 280 : plotData.length > 15 ? 250 : 220)
-    : 176;
-  // Each category needs enough horizontal room so the value labels on top of the bars
-  // don't collide. Grouped (multi-series) bars need more room per category than single bars.
-  // The chart lives inside a horizontal scroller, so wide slots just enable scrolling.
+  // Horizontal room per category (chart scrolls horizontally, so wide slots are fine).
   const seriesCount = multi ? (series?.length ?? 2) : 1;
   const barSlot = multi ? Math.max(78, seriesCount * 46) : BAR_SLOT_PX;
-  // Show on-bar value labels while they stay legible; beyond that the tooltip + scroll carry it.
-  const showBarLabels = plotData.length <= (multi ? 40 : 150);
+  // Vertical layout: total height = real bar area + x-axis label band + top-label band.
+  // (Previously the x-axis band was double-counted, collapsing short charts to ~0 bar height.)
+  const xLabelSpace = plotData.length > 6 ? 86 : 34;
+  // On-bar value labels only when they stay legible: single-series up to many bars, but
+  // grouped bars only for a few categories (otherwise the tooltip + table carry the numbers).
+  const showBarLabels = multi ? plotData.length <= 6 : plotData.length <= 150;
+  const topSpace = showBarLabels ? (multi ? 40 : 22) : 22;
+  const barArea = plotData.length > 30 ? 210 : 170;
+  const barHeight = type === 'bar' ? barArea + xLabelSpace + topSpace : 176;
 
   const fmtAxis = useMemo(
     () => (v: number) => formatChartAxisValue(Number(v), valueKey),
@@ -447,7 +449,7 @@ const ResultChart = memo(function ResultChart({
           {() => (
             <BarChart
               data={plotData}
-              margin={{ top: multi && showBarLabels ? 46 : 24, right: 12, left: 4, bottom: plotData.length > 6 ? 80 : 24 }}
+              margin={{ top: topSpace, right: 12, left: 4, bottom: 6 }}
               barCategoryGap="20%"
               barGap={2}
               maxBarSize={multi ? 26 : 40}
@@ -461,7 +463,7 @@ const ResultChart = memo(function ResultChart({
                 tickLine={false}
                 interval={0}
                 tickFormatter={(v: string) => truncateChartLabel(v, 14)}
-                height={plotData.length > 6 ? 80 : 36}
+                height={xLabelSpace}
               />
               <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmtAxis} width={56} />
               <Tooltip

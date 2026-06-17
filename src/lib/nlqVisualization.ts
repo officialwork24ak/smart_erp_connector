@@ -64,8 +64,42 @@ const NLQ_TABLE_MAX_ROWS = 3000;
 function toNum(v: unknown): number | null {
   if (v == null || v === '') return null;
   if (typeof v === 'number' && Number.isFinite(v)) return v;
-  const n = Number(String(v).replace(/,/g, '').replace(/%/g, '').trim());
+  let s = String(v).replace(/,/g, '').replace(/%/g, '').replace(/₹/g, '').trim();
+  // Pre-formatted lakh/crore/K/M (e.g. "39.26 L", "1.2Cr") — backend usually sends raw numbers,
+  // but parsing these prevents invisible bars if formatting ever leaks into records.
+  const scaled = s.match(/^(-?\d*\.?\d+)\s*([Ll]|Cr|CR|cr|K|k|M|m)?$/);
+  if (scaled) {
+    let n = Number(scaled[1]);
+    const suf = (scaled[2] ?? '').toLowerCase();
+    if (suf === 'l') n *= 100_000;
+    else if (suf === 'cr') n *= 10_000_000;
+    else if (suf === 'k') n *= 1_000;
+    else if (suf === 'm') n *= 1_000_000;
+    return Number.isFinite(n) ? n : null;
+  }
+  const n = Number(s);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Numeric-looking columns that must never become chart bar series. */
+function isNonMetricColumn(col: string): boolean {
+  const l = colLower(col);
+  if (l.endsWith('id') && l !== 'grid') return true;
+  const bad = [
+    'salesrank', 'rank', 'ranking', 'firstname', 'lastname', 'customername', 'suppliername',
+    'productname', 'itemname', 'agebucket', 'bucket', 'purinvoicedate', 'invoicedate',
+    'monthsin', 'monthsof', 'monthcount', 'dayssince', 'position', 'sno', 'srno', 'detail',
+  ];
+  return bad.some(k => l.includes(k));
+}
+
+/** True when the column has at least one non-zero numeric value in the result set. */
+function seriesHasSignal(records: Record<string, unknown>[], col: string): boolean {
+  const sample = records.length > 80 ? records.slice(0, 80) : records;
+  return sample.some(r => {
+    const n = toNum(r[col]);
+    return n != null && n !== 0;
+  });
 }
 
 function isNumericColumn(records: Record<string, unknown>[], col: string): boolean {
@@ -113,10 +147,12 @@ function isDateColumn(col: string, records: Record<string, unknown>[]): boolean 
 function pickColumns(records: Record<string, unknown>[]): { valueKey: string; labelKey: string; dateKey: string | null; dimKeys: string[] } {
   const cols = Object.keys(records[0] ?? {});
   const numericCols = cols.filter(c => isNumericColumn(records, c));
+  const signalCols = numericCols.filter(c => seriesHasSignal(records, c));
+  const valueCandidates = signalCols.length ? signalCols : numericCols;
   const dateKey = cols.find(c => isDateColumn(c, records)) ?? null;
 
   const valueKey =
-    [...numericCols].sort((a, b) => scoreNumeric(b) - scoreNumeric(a))[0] ??
+    [...valueCandidates].sort((a, b) => scoreNumeric(b) - scoreNumeric(a))[0] ??
     cols.find(c => isNumericColumn(records, c)) ??
     cols[0] ??
     'value';
@@ -434,7 +470,11 @@ export function buildNLQVisualization(
   // period as its own bar so the comparison is visible — not just the first column.
   if (!dateKey && rowCount > 1 && rowCount <= 200 && dimKeys.length >= 1) {
     const numericCols = Object.keys(records[0]).filter(
-      c => isNumericColumn(records, c) && !SKIP_COLS.has(c.toLowerCase()),
+      c =>
+        isNumericColumn(records, c) &&
+        !SKIP_COLS.has(c.toLowerCase()) &&
+        !isDateColumn(c, records) &&
+        !isNonMetricColumn(c),
     );
     if (numericCols.length >= 2) {
       const byCat = new Map<string, string[]>();
@@ -447,7 +487,13 @@ export function buildNLQVisualization(
       // (its category only has 1 member), so mixed-scale bars are still avoided.
       const chosen = ['sales', 'count', 'rupeeAvg', 'percent', 'other'].find(cat => (byCat.get(cat)?.length ?? 0) >= 2);
       if (chosen) {
-        const seriesCols = (byCat.get(chosen) as string[]).slice(0, 4);
+        const seriesCols = (byCat.get(chosen) as string[])
+          .filter(c => seriesHasSignal(records, c))
+          .slice(0, 4);
+        if (seriesCols.length < 2) {
+          // e.g. stock-out rows where OnHandQty is 0 but QtyNeeded7Days has signal — fall through
+          // to single-series bar instead of a grouped chart with a flat invisible series.
+        } else {
         const points: ChartPoint[] = records
           .map((r, i) => {
             const p: ChartPoint = { label: String(r[labelKey] ?? `#${i + 1}`).slice(0, 28), value: toNum(r[seriesCols[0]]) ?? 0 };
@@ -462,6 +508,7 @@ export function buildNLQVisualization(
           rows: records.slice(0, NLQ_TABLE_MAX_ROWS).map(r => cols0.map(c => formatCell(r[c], c))),
         };
         return { chartType: 'bar', chartData: points, valueKey: seriesCols[0], labelKey, kpiCards: [], series, table: tbl };
+        }
       }
     }
   }
