@@ -24,6 +24,7 @@ import {
 import verifiedQueriesFallback from '../data/verified_nlq_queries.json';
 import verifiedAiTemplates from '../data/ai_query_templates.json';
 import TableExportButtons, { type ExportNotify } from '../components/export/TableExportButtons';
+import { describeSqlPlan } from '../lib/sqlPlan';
 import { ScrollableCartesian, PieSideLayout } from '../lib/chartLayout';
 
 const PIE_COLORS = ['#00b8e6', '#00e67a', '#ffb800', '#a78bfa', '#f472b6', '#fb923c', '#38bdf8', '#4ade80'];
@@ -814,7 +815,11 @@ export default function AIQuery() {
 
   // Left panel tabs
   const [leftTab, setLeftTab] = useState<LeftTab>('suggestions');
-  const [leftOpen, setLeftOpen] = useState(true);
+  // Chat-first on phones: the side panel starts collapsed on small screens so the
+  // conversation is front-and-centre; it's open by default on tablets/desktops.
+  const [leftOpen, setLeftOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : true,
+  );
 
   const [templateFilter, setTemplateFilter] = useState('');
 
@@ -977,6 +982,8 @@ export default function AIQuery() {
     const msg = text ?? input.trim();
     if (!msg || loading) return;
     setInput('');
+    // On phones, collapse the side panel after sending so the answer is in view.
+    if (typeof window !== 'undefined' && window.innerWidth < 768) setLeftOpen(false);
 
     // Track conversation topic
     const topic = detectTopic(msg);
@@ -1058,6 +1065,49 @@ export default function AIQuery() {
           Verified FAQ SQL
         </div>
       )}
+
+      {/* Timeline + Logic — derived from the SQL that actually ran, so users see exactly
+          which date window and calculation produced this answer (templates AND dynamic).
+          Responsive: stacks on mobile, side-by-side on larger screens. */}
+      {(() => {
+        const plan = describeSqlPlan(msg.sql);
+        if (!plan) return null;
+        return (
+          <div
+            className="mt-2 flex flex-col gap-2 rounded-xl px-3 py-2 sm:flex-row sm:items-start sm:gap-3"
+            style={{
+              background: isDark ? 'rgba(0,184,230,0.06)' : 'rgba(0,184,230,0.05)',
+              border: isDark ? '1px solid rgba(0,184,230,0.18)' : '1px solid rgba(0,184,230,0.2)',
+            }}
+          >
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Clock size={11} style={{ color: '#00b8e6' }} />
+              <span className="text-2xs font-semibold uppercase tracking-wide" style={{ color: '#00b8e6' }}>Timeline</span>
+              <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>{plan.timeline}</span>
+            </div>
+            <div
+              className="flex flex-wrap items-start gap-1.5 min-w-0 sm:border-l sm:pl-3"
+              style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }}
+            >
+              <span className="flex items-center gap-1.5 shrink-0">
+                <BarChart2 size={11} style={{ color: '#00e67a' }} />
+                <span className="text-2xs font-semibold uppercase tracking-wide" style={{ color: '#00e67a' }}>Logic</span>
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {plan.logic.map((l, i) => (
+                  <span
+                    key={i}
+                    className="text-2xs px-1.5 py-0.5 rounded-md"
+                    style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: 'var(--text-secondary)' }}
+                  >
+                    {l}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {msg.kpiCards && <KPICards cards={msg.kpiCards} />}
       {msg.warnings && msg.warnings.length > 0 && (
@@ -1193,6 +1243,24 @@ export default function AIQuery() {
 
       <Toast message={toast?.message ?? ''} type={toast?.type ?? 'success'} visible={!!toast} />
 
+      {/* ── Left panel toggle (mobile) — chat-first; tap to reveal the panel ─── */}
+      <button
+        type="button"
+        onClick={() => setLeftOpen(o => !o)}
+        className="md:hidden flex items-center justify-between gap-2 w-full px-3 py-2 rounded-xl text-xs font-semibold flex-shrink-0"
+        style={{
+          background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+          border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)',
+          color: 'var(--text-secondary)',
+        }}
+      >
+        <span className="flex items-center gap-1.5">
+          <ShieldCheck size={13} style={{ color: '#00b8e6' }} />
+          Suggestions · Templates · History
+        </span>
+        <ChevronDown size={13} style={{ transform: leftOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+      </button>
+
       {/* ── Left panel toggle (desktop) ─────────────────────────────────────── */}
       <button
         type="button"
@@ -1214,7 +1282,7 @@ export default function AIQuery() {
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.25 }}
-        className={`w-full flex-shrink-0 flex flex-col gap-3 min-h-0 md:max-h-full max-h-80 overflow-hidden${leftOpen ? ' md:w-56' : ' md:w-0 md:pointer-events-none md:opacity-0'}`}
+        className={`w-full flex-shrink-0 flex flex-col gap-3 min-h-0 overflow-hidden transition-all duration-300 md:max-h-full ${leftOpen ? 'max-h-80 md:w-56' : 'max-h-0 md:w-0 pointer-events-none opacity-0'}`}
       >
         {/* Stats card */}
         <div className="rounded-2xl p-4 flex-shrink-0"

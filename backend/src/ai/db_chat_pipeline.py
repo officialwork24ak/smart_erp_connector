@@ -461,6 +461,19 @@ Rules:
 5. Use square brackets around column names: [ColumnName].
 6. For date filtering use CAST(@date AS DATE) comparisons.
 
+PERIOD INTERPRETATION — read the time window from the user's wording; adapt, do not default blindly:
+- Map the words to the right window: "today" -> today; "yesterday" -> yesterday; "this week"/"last week";
+  "this month"/"MTD"; "last month"; "this quarter"/"QTD"; "this year"/"YTD" (financial year, Apr 1 start);
+  "same day last week" -> today vs the date exactly 7 days ago; "same day last month" / "last month same day"
+  -> the same day-of-month in the previous month; "same month last year" -> that calendar month one year ago;
+  "last N days" / "last N months".
+- If the user names a metric alongside a period (e.g. "last month same day revenue with customer count"),
+  honour BOTH the period AND every requested metric (revenue = SUM(SalesNetAmount), customer count =
+  COUNT(DISTINCT CustomerId), bills = COUNT(DISTINCT CashmemoNo), units = SUM(SalesQuantity)).
+- If the user gives NO time window at all, DEFAULT to this month (MTD) and you MUST say so in "explanation"
+  (e.g. "Assumed period: this month"). Never silently pick "today" when no period was given.
+- Always restate the exact window you used in "explanation" so the user can see it.
+
 DATE PATTERNS — use EXACTLY these:
   This month (MTD)  : [DateCol] >= DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1)
                       AND [DateCol] < DATEADD(month,1,DATEFROMPARTS(YEAR(GETDATE()),MONTH(GETDATE()),1))
